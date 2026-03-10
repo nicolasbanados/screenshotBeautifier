@@ -86,6 +86,10 @@ export default function ScreenshotBeautifier() {
   const [borderColor, setBorderColor] = useState("#ffffff");
   const [shadow, setShadow] = useState(true);
   const [bgMode, setBgMode] = useState("preset");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBgUrl, setAiBgUrl] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
   const [position, setPosition] = useState("center");
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
@@ -135,7 +139,28 @@ export default function ScreenshotBeautifier() {
     return () => document.removeEventListener("paste", handlePaste);
   }, [handlePaste]);
 
+  const generateAiBg = useCallback(async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    setAiError(null);
+    const seed = Math.floor(Math.random() * 999999);
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(aiPrompt.trim())}?width=1920&height=1080&seed=${seed}&nologo=true`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Generation failed");
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) throw new Error("Invalid response");
+      const objectUrl = URL.createObjectURL(blob);
+      setAiBgUrl(objectUrl);
+    } catch (err) {
+      setAiError("Failed to generate. Try again.");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiPrompt]);
+
   const getBackground = () => {
+    if (bgMode === "ai" && aiBgUrl) return `url(${aiBgUrl}) center/cover no-repeat`;
     if (bgMode === "auto" && bgColor) return bgColor;
     if (bgMode === "custom" && customBg) return customBg;
     return selectedBg;
@@ -154,23 +179,35 @@ export default function ScreenshotBeautifier() {
       const ctx = canvas.getContext("2d");
 
       const bg = getBackground();
-      if (bg.includes("gradient")) {
-        const tempDiv = document.createElement("div");
-        tempDiv.style.width = totalW + "px";
-        tempDiv.style.height = totalH + "px";
-        tempDiv.style.background = bg;
-        document.body.appendChild(tempDiv);
-        const cs = getComputedStyle(tempDiv);
-        document.body.removeChild(tempDiv);
-
+      if (bgMode === "ai" && aiBgUrl) {
+        const bgImg = new Image();
+        bgImg.crossOrigin = "anonymous";
+        await new Promise((resolve, reject) => {
+          bgImg.onload = resolve;
+          bgImg.onerror = reject;
+          bgImg.src = aiBgUrl;
+        });
+        const bgAspect = bgImg.naturalWidth / bgImg.naturalHeight;
+        const canvasAspect = totalW / totalH;
+        let sx = 0, sy = 0, sw = bgImg.naturalWidth, sh = bgImg.naturalHeight;
+        if (bgAspect > canvasAspect) {
+          sw = bgImg.naturalHeight * canvasAspect;
+          sx = (bgImg.naturalWidth - sw) / 2;
+        } else {
+          sh = bgImg.naturalWidth / canvasAspect;
+          sy = (bgImg.naturalHeight - sh) / 2;
+        }
+        ctx.drawImage(bgImg, sx, sy, sw, sh, 0, 0, totalW, totalH);
+      } else if (bg.includes("gradient")) {
         const grad = ctx.createLinearGradient(0, 0, totalW, totalH);
         const colors = bg.match(/#[a-f\d]{6}|rgb[a]?\([^)]+\)/gi) || ["#000", "#fff"];
         colors.forEach((c, i) => grad.addColorStop(i / (colors.length - 1), c));
         ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, totalW, totalH);
       } else {
         ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, totalW, totalH);
       }
-      ctx.fillRect(0, 0, totalW, totalH);
 
       const posOffset = getExportOffset(position, padding, padding);
       const imgX = (posOffset.x + borderWidth + offsetX) * scale;
@@ -218,7 +255,7 @@ export default function ScreenshotBeautifier() {
     } finally {
       setExporting(false);
     }
-  }, [image, padding, borderRadius, borderWidth, borderColor, shadow, bgMode, bgColor, selectedBg, customBg, position, offsetX, offsetY]);
+  }, [image, padding, borderRadius, borderWidth, borderColor, shadow, bgMode, bgColor, selectedBg, customBg, position, offsetX, offsetY, aiBgUrl]);
 
   const previewBg = getBackground();
   const light = bgColor ? isLightColor(bgColor) : true;
@@ -330,6 +367,7 @@ export default function ScreenshotBeautifier() {
                 <div style={{ display: "flex", gap: 4, marginTop: 10, marginBottom: 12 }}>
                   {[
                     { key: "preset", label: "Presets" },
+                    { key: "ai", label: "AI" },
                     { key: "auto", label: "Auto" },
                     { key: "custom", label: "Custom" },
                   ].map((m) => (
@@ -371,6 +409,50 @@ export default function ScreenshotBeautifier() {
                         }}
                       />
                     ))}
+                  </div>
+                )}
+
+                {bgMode === "ai" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="Describe your background..."
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !aiLoading) generateAiBg(); }}
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1px solid #444",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        color: "#eee",
+                        fontSize: 13,
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      onClick={generateAiBg}
+                      disabled={aiLoading || !aiPrompt.trim()}
+                      style={{
+                        background: aiLoading ? "rgba(139,92,246,0.4)" : "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: aiLoading ? "wait" : "pointer",
+                        opacity: !aiPrompt.trim() ? 0.5 : 1,
+                      }}
+                    >
+                      {aiLoading ? "Generating..." : "Generate background"}
+                    </button>
+                    {aiError && <span style={{ fontSize: 12, color: "#f87171" }}>{aiError}</span>}
+                    {aiBgUrl && !aiLoading && (
+                      <div style={{ borderRadius: 8, overflow: "hidden", border: "1px solid #333" }}>
+                        <img src={aiBgUrl} alt="AI background" style={{ width: "100%", height: 60, objectFit: "cover", display: "block" }} />
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -171,8 +171,11 @@ export default function ScreenshotBeautifier() {
     setExporting(true);
     try {
       const scale = 2;
-      const totalW = (image.naturalWidth + padding * 2 + borderWidth * 2) * scale;
-      const totalH = (image.naturalHeight + padding * 2 + borderWidth * 2) * scale;
+      const padScale = Math.max(image.naturalWidth, image.naturalHeight) / 500;
+      const scaledPadding = Math.round(padding * padScale);
+      const scaledBorderWidth = Math.round(borderWidth * padScale);
+      const totalW = (image.naturalWidth + scaledPadding * 2 + scaledBorderWidth * 2) * scale;
+      const totalH = (image.naturalHeight + scaledPadding * 2 + scaledBorderWidth * 2) * scale;
       const canvas = document.createElement("canvas");
       canvas.width = totalW;
       canvas.height = totalH;
@@ -209,15 +212,18 @@ export default function ScreenshotBeautifier() {
         ctx.fillRect(0, 0, totalW, totalH);
       }
 
-      const posOffset = getExportOffset(position, padding, padding);
-      const imgX = (posOffset.x + borderWidth + offsetX) * scale;
-      const imgY = (posOffset.y + borderWidth + offsetY) * scale;
+      const scaledOffsetX = Math.round(offsetX * padScale);
+      const scaledOffsetY = Math.round(offsetY * padScale);
+      const scaledBorderRadius = Math.round(borderRadius * padScale);
+      const posOffset = getExportOffset(position, scaledPadding, scaledPadding);
+      const imgX = (posOffset.x + scaledBorderWidth + scaledOffsetX) * scale;
+      const imgY = (posOffset.y + scaledBorderWidth + scaledOffsetY) * scale;
       const imgW = image.naturalWidth * scale;
       const imgH = image.naturalHeight * scale;
-      const br = borderRadius * scale;
+      const br = scaledBorderRadius * scale;
 
-      if (borderWidth > 0) {
-        const bw = borderWidth * scale;
+      if (scaledBorderWidth > 0) {
+        const bw = scaledBorderWidth * scale;
         ctx.beginPath();
         const bx = imgX - bw;
         const by = imgY - bw;
@@ -232,8 +238,8 @@ export default function ScreenshotBeautifier() {
       if (shadow) {
         ctx.save();
         ctx.shadowColor = "rgba(0,0,0,0.25)";
-        ctx.shadowBlur = 40 * scale;
-        ctx.shadowOffsetY = 10 * scale;
+        ctx.shadowBlur = 40 * padScale * scale;
+        ctx.shadowOffsetY = 10 * padScale * scale;
         ctx.beginPath();
         ctx.roundRect(imgX, imgY, imgW, imgH, br);
         ctx.fillStyle = "rgba(0,0,0,1)";
